@@ -1,6 +1,7 @@
 import { getSHA } from './git-info'
 import { getUpdatesURL, getChannel } from '../script/dist-info'
-import { version, productName } from './package.json'
+import { getProductName } from './package-info'
+import { version } from './package.json'
 
 const devClientId = '3a723b10ac5575cc5bb9'
 const devClientSecret = '22c34d87789a365981ed921352a7b9a8c3f69d54'
@@ -15,6 +16,11 @@ const optionalStringReplacement = (value: string | undefined) =>
 export function getReplacements() {
   const isDevBuild = channel === 'development'
 
+  // Allow builds to opt out of the auto-update machinery entirely, e.g. for
+  // privately built, locally signed copies which must never replace
+  // themselves with an official GitHub Desktop release.
+  const isAutoUpdateDisabled = process.env.DESKTOP_DISABLE_AUTO_UPDATE === '1'
+
   return {
     __OAUTH_CLIENT_ID__: s(process.env.DESKTOP_OAUTH_CLIENT_ID || devClientId),
     __OAUTH_SECRET__: s(
@@ -23,12 +29,18 @@ export function getReplacements() {
     __DARWIN__: process.platform === 'darwin',
     __WIN32__: process.platform === 'win32',
     __LINUX__: process.platform === 'linux',
-    __APP_NAME__: s(productName),
+    __APP_NAME__: s(getProductName()),
     __APP_VERSION__: s(version),
     __DEV__: isDevBuild,
     __DEV_SECRETS__: isDevBuild || !process.env.DESKTOP_OAUTH_CLIENT_SECRET,
     __RELEASE_CHANNEL__: s(channel),
     __UPDATES_URL__: s(process.env.DESKTOP_E2E_UPDATES_URL ?? getUpdatesURL()),
+    __DISABLE_AUTO_UPDATE__: isAutoUpdateDisabled,
+    // Allows a renamed build to keep sharing the data directory of a regular
+    // GitHub Desktop install instead of getting its own.
+    __USER_DATA_NAME__: optionalStringReplacement(
+      process.env.DESKTOP_USER_DATA_NAME
+    ),
     __ERROR_REPORTING_ENDPOINT__: optionalStringReplacement(
       process.env.DESKTOP_ERROR_REPORTING_ENDPOINT
     ),

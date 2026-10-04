@@ -50,6 +50,19 @@ declare const __RELEASE_CHANNEL__:
 /** The URL for Squirrel's updates. */
 declare const __UPDATES_URL__: string
 
+/**
+ * Whether the auto-update machinery has been disabled at build time, e.g.
+ * for privately built copies of the app which must never update themselves.
+ */
+declare const __DISABLE_AUTO_UPDATE__: boolean
+
+/**
+ * The name of the directory the app stores its data in, if it should differ
+ * from the app name. Used by privately built copies which are renamed but
+ * want to keep sharing a regular GitHub Desktop install's data.
+ */
+declare const __USER_DATA_NAME__: string | undefined
+
 /** The URL for fatal exception reports. */
 declare const __ERROR_REPORTING_ENDPOINT__: string | undefined
 

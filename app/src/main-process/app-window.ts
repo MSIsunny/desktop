@@ -442,6 +442,12 @@ export class AppWindow {
   }
 
   public async checkForUpdates(url: string) {
+    if (__DISABLE_AUTO_UPDATE__) {
+      // This build has opted out of auto-updating entirely so we refuse to
+      // even talk to an update server.
+      return undefined
+    }
+
     try {
       autoUpdater.setFeedURL({ url: await trySetUpdaterGuid(url) })
       autoUpdater.checkForUpdates()

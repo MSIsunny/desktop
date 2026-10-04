@@ -152,8 +152,21 @@ export function shouldMakeDelta() {
 
 /**
  * Path to the directory containing all icon assets for the current release channel.
+ *
+ * `DESKTOP_ICON_DIR` can point at an alternative set of icon assets, either as
+ * an absolute path or as the name of a directory inside `app/static/logos`.
+ * This lets a privately built copy use its own icon so it can be told apart
+ * from a regular GitHub Desktop install at a glance.
  */
 export function getIconDirectory() {
+  const custom = process.env.DESKTOP_ICON_DIR
+
+  if (custom !== undefined && custom.length > 0) {
+    return Path.isAbsolute(custom)
+      ? custom
+      : join(projectRoot, 'app', 'static', 'logos', custom)
+  }
+
   const devOrProd = getChannel() === 'development' ? 'dev' : 'prod'
   return join(projectRoot, 'app', 'static', 'logos', devOrProd)
 }

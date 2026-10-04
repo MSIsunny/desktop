@@ -72,8 +72,30 @@ const isPublishableBuild = isPublishable()
 const isDevelopmentBuild = getChannel() === 'development'
 const shouldSkipPackaging = process.env.DESKTOP_SKIP_PACKAGE === '1'
 
+// Publishable builds are normally signed with a Developer ID certificate
+// and notarized, which requires the associated credentials to be present.
+// When building a private copy locally (DESKTOP_ADHOC_SIGN=1) we fall back to
+// an ad-hoc signature instead, which is enough for the app to run on the
+// machine that built it.
+const shouldAdHocSign =
+  isDevelopmentBuild || process.env.DESKTOP_ADHOC_SIGN === '1'
+
+// Mirrors the `__DEV_SECRETS__` replacement in app/app-info.ts. Builds which
+// aren't handed GitHub's OAuth credentials fall back to the development OAuth
+// app, and must therefore register the development callback URL scheme.
+const usesDevOAuthCredentials =
+  isDevelopmentBuild || !process.env.DESKTOP_OAUTH_CLIENT_SECRET
+
+// Private builds only register their own OAuth callback scheme so that the
+// generic GitHub Desktop schemes (used by "Open in Desktop" links on
+// github.com) keep pointing at a regular install.
+const shouldIsolateUrlSchemes = process.env.DESKTOP_ISOLATED_URL_SCHEMES === '1'
+
 const projectRoot = path.join(__dirname, '..')
-const entitlementsSuffix = isDevelopmentBuild ? '-dev' : ''
+// Ad-hoc signed builds need `com.apple.security.cs.disable-library-validation`
+// since they have no Team ID to match the embedded Electron framework against,
+// which is exactly what the development entitlements add.
+const entitlementsSuffix = shouldAdHocSign ? '-dev' : ''
 const entitlementsPath = `${projectRoot}/script/entitlements${entitlementsSuffix}.plist`
 const extendInfoPath = `${projectRoot}/script/info.plist`
 const outRoot = path.join(projectRoot, 'out')
@@ -232,24 +254,26 @@ async function packageApp() {
         hardenedRuntime: true,
         entitlements: entitlementsPath,
       }),
-      type: isPublishableBuild ? 'distribution' : 'development',
+      type: shouldAdHocSign ? 'development' : 'distribution',
       // For development, we will use '-' as the identifier so that codesign
       // will sign the app to run locally. We need to disable 'identity-validation'
       // or otherwise it will replace '-' with one of the regular codesigning
       // identities in our system.
-      identity: isDevelopmentBuild ? '-' : undefined,
-      identityValidation: !isDevelopmentBuild,
+      identity: shouldAdHocSign ? '-' : undefined,
+      identityValidation: !shouldAdHocSign,
     },
     osxNotarize,
     protocols: [
       {
         name: getBundleID(),
         schemes: [
-          !isDevelopmentBuild
+          !usesDevOAuthCredentials
             ? 'x-github-desktop-auth'
             : 'x-github-desktop-dev-auth',
-          'x-github-client',
-          'github-mac',
+          // Private builds deliberately don't claim the generic GitHub Desktop
+          // URL schemes so they never end up handling links meant for a
+          // regular GitHub Desktop install (DESKTOP_ISOLATED_URL_SCHEMES=1).
+          ...(shouldIsolateUrlSchemes ? [] : ['x-github-client', 'github-mac']),
         ],
       },
     ],

@@ -469,6 +469,11 @@
     min-width: 0;
     min-height: 0;
     text-align: center;
+
+    &.image-error {
+      color: var(--text-secondary-color);
+      padding: var(--spacing);
+    }
   }
 
   .image-diff-previous {

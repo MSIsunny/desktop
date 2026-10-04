@@ -100,6 +100,7 @@ const imageFileExtensions = new Set([
   '.webp',
   '.bmp',
   '.avif',
+  '.pdf',
 ])
 
 if (enableImagePreviewsForDDSFiles()) {
@@ -696,14 +697,18 @@ export async function convertDiff(
 ): Promise<IDiff> {
   const extension = Path.extname(file.path).toLowerCase()
 
+  // Files with a known media extension are always rendered as media, even
+  // when Git decided to present their contents as text. This matters for
+  // single page PDFs, which don't necessarily contain a NUL byte within the
+  // first 8KB that Git uses to classify a file as binary.
+  if (imageFileExtensions.has(extension)) {
+    return getImageDiff(repository, file, newestCommitish, oldestCommitish)
+  }
+
   if (diff.isBinary) {
     // some extension we don't know how to parse, never mind
-    if (!imageFileExtensions.has(extension)) {
-      return {
-        kind: DiffType.Binary,
-      }
-    } else {
-      return getImageDiff(repository, file, newestCommitish, oldestCommitish)
+    return {
+      kind: DiffType.Binary,
     }
   }
 
@@ -721,6 +726,8 @@ export async function convertDiff(
  * Map a given file extension to the related data URL media type
  */
 function getMediaType(extension: string) {
+  extension = extension.toLowerCase()
+
   if (extension === '.png') {
     return 'image/png'
   }
@@ -744,6 +751,9 @@ function getMediaType(extension: string) {
   }
   if (extension === '.dds') {
     return 'image/vnd-ms.dds'
+  }
+  if (extension === '.pdf') {
+    return 'application/pdf'
   }
 
   // fallback value as per the spec

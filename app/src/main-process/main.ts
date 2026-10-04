@@ -53,6 +53,15 @@ import {
 import { initializeDesktopNotifications } from './notifications'
 import parseCommandLineArgs from 'minimist'
 import { CLIAction } from '../lib/cli-action'
+import { join } from 'path'
+
+// A renamed copy of the app can be configured to keep using a regular GitHub
+// Desktop install's data directory so that the two share repositories,
+// accounts and settings. Note that the single instance lock lives in the same
+// directory, so only one of them can be running at a time.
+if (__USER_DATA_NAME__ !== undefined) {
+  app.setPath('userData', join(app.getPath('appData'), __USER_DATA_NAME__))
+}
 
 app.setAppLogsPath()
 enableSourceMaps()
