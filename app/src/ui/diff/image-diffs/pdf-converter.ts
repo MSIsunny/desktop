@@ -15,18 +15,34 @@ import { Image } from '../../../models/diff'
 export const PDFMediaType = 'application/pdf'
 
 /**
- * The scale (in CSS pixels, ie 1 = 72dpi) we aim to rasterize at. Papers
- * typically contain vector artwork so rendering at 2x gives a reasonably
- * crisp result without producing an unreasonably large bitmap.
+ * The scale we render at is chosen so that the longest edge of the resulting
+ * bitmap covers roughly this many CSS pixels. Diff images are displayed at
+ * most as wide as the diff panel, and the panel is never wider than the
+ * window, so this is a comfortable upper bound that still keeps the bitmap
+ * crisp on HiDPI displays (where `devicePixelRatio` multiplies it further).
  */
-const RasterizationScale = 2
+const TargetCssLongestEdge = 1200
 
 /**
- * A hard upper bound for the longest edge of the rasterized page. Some PDFs
- * have huge page sizes (posters, plans etc) and we don't want to allocate a
- * gigapixel canvas for those, so we scale those down.
+ * Never render below this scale. Single page paper figures are frequently
+ * exported with a tiny page size (a 3.5 inch wide figure is only 252pt) so
+ * rendering at 1:1 would produce an unusably small bitmap.
  */
-const MaxRasterDimension = 4000
+const MinScale = 2
+
+/** Never render above this scale, no matter how small the page is. */
+const MaxScale = 12
+
+/** Hard upper bound for the longest edge of the rasterized page, in pixels. */
+const MaxRasterDimension = 4096
+
+/**
+ * Hard upper bound for the total number of pixels we're willing to
+ * rasterize. A 4096x4096 RGBA canvas is already 64MB, and we need the canvas,
+ * the encoded PNG and the data URL string to coexist for a moment, so this
+ * keeps the worst case within a sane memory budget.
+ */
+const MaxRasterPixels = 8_000_000
 
 /**
  * Rasterizing a page is relatively expensive so we cache the result per
@@ -56,35 +72,64 @@ export function rasterizePDF(image: Image): Promise<string> {
 }
 
 /** Decode the base64 payload of an `Image` into a byte array. */
-function decodeBase64(contents: string): Uint8Array {
-  const binary = atob(contents)
-  const bytes = new Uint8Array(binary.length)
+async function decodeBase64(contents: string): Promise<Uint8Array> {
+  // `Uint8Array.fromBase64` is implemented natively by the engine. Decoding
+  // the payload by hand (via `atob` and a character-by-character loop) is
+  // dramatically slower and, for multi-megabyte payloads, reliably crashes
+  // the renderer process, so we never do that here.
+  const fromBase64 = (
+    Uint8Array as unknown as {
+      fromBase64?: (base64: string) => Uint8Array
+    }
+  ).fromBase64
 
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
+  if (typeof fromBase64 === 'function') {
+    return fromBase64(contents)
   }
 
-  return bytes
+  // Fallback for engines without `Uint8Array.fromBase64`: let the (native)
+  // data URL loader do the decoding instead.
+  const response = await fetch(
+    `data:application/octet-stream;base64,${contents}`
+  )
+
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+/**
+ * Pick the scale to rasterize at, taking the size of the page and the
+ * display's pixel density into account while staying inside our memory
+ * budget.
+ */
+function getRasterizationScale(width: number, height: number) {
+  const longestEdge = Math.max(width, height)
+  const devicePixelRatio = Math.max(1, window.devicePixelRatio || 1)
+
+  const preferred = (TargetCssLongestEdge * devicePixelRatio) / longestEdge
+  const desired = Math.min(Math.max(preferred, MinScale), MaxScale)
+
+  const limit = Math.min(
+    MaxRasterDimension / longestEdge,
+    Math.sqrt(MaxRasterPixels / (width * height))
+  )
+
+  return Math.min(desired, limit)
 }
 
 async function rasterizeFirstPage(contents: string): Promise<string> {
   // Note that pdf.js v6 no longer supports evaluating the contents of a
   // document (ie the `isEvalSupported` option is gone) so a malicious PDF
   // cannot run any code in the context of the renderer.
-  const loadingTask = getDocument({ data: decodeBase64(contents) })
+  const loadingTask = getDocument({ data: await decodeBase64(contents) })
 
   try {
     const pdf = await loadingTask.promise
     const page = await pdf.getPage(1)
     const unscaledViewport = page.getViewport({ scale: 1 })
-
-    const longestEdge = Math.max(
+    const scale = getRasterizationScale(
       unscaledViewport.width,
       unscaledViewport.height
     )
-
-    const scale = Math.min(RasterizationScale, MaxRasterDimension / longestEdge)
-
     const viewport = page.getViewport({ scale })
 
     const canvas = document.createElement('canvas')
